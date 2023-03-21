@@ -3,7 +3,7 @@
 #include <fstream>
 #include <thread>
 #include <chrono>
-#define DEBUG
+//#define DEBUG
 
 #ifdef DEBUG
 #define _DEBUGMESSAGE(fmt, ...) _MESSAGE(fmt __VA_OPT__(, ) __VA_ARGS__)
@@ -36,6 +36,7 @@ static int cachingStatus = 0;
 static bool isLoading = false;
 static bool wasDrawn = false;
 static bool updateAnimGraph = false;
+static float targetScale = -1.f;
 static float lastCacheRequest = 0.f;
 static float loadedTime = std::numeric_limits<float>::infinity();
 static NiAVObject* fakeSkeleton = nullptr;
@@ -63,6 +64,9 @@ void CheckCachingCompletion() {
 			++index;
 		}
 		LoadedIdleLock->unlock_read();
+		if (p->Get3D(false)) {
+			p->Get3D(false)->local.scale = targetScale;
+		}
 		cached = true;
 	}
 }
@@ -90,6 +94,9 @@ public:
 			cachingStatus = 0;
 			++cacheCount;
 			++cacheIterator;
+			if (p->Get3D(false)) {
+				p->Get3D(false)->local.scale = max((float)cacheCount / (float)targetCount * targetScale, 0.01f);
+			}
 			_DEBUGMESSAGE("cacheCount %d", cacheCount);
 			CheckCachingCompletion();
 		}
@@ -272,6 +279,10 @@ void HookedAnimationFileManagerUpdate(AnimationFileManagerSingleton* filemanager
 	if (!cached && hasManager && hasGraph && *F4::ptr_engineTime - loadedTime >= 2.f && p->interactingState == INTERACTING_STATE::kNotInteracting) {
 		if (!lastState)
 			lastState = pc->currentState.get();
+		if (targetScale < 0 && p->Get3D(false)) {
+			targetScale = p->Get3D(false)->local.scale;
+			p->Get3D(false)->local.scale = max((float)cacheCount / (float)targetCount * targetScale, 0.01f);
+		}
 		if (pc->currentState != pc->cameraStates[CameraStates::k3rdPerson]) {
 			pc->Force3rdPerson();
 		}
@@ -301,6 +312,8 @@ void HookedAnimationFileManagerUpdate(AnimationFileManagerSingleton* filemanager
 					}
 					else if (*F4::ptr_engineTime - lastCacheRequest >= 1.f) {
 						_MESSAGE("Cache retry for %s", cacheCurrentIterator->first.c_str());
+						p->UpdateAnimation(1000.f);
+						p->NotifyAnimationGraphImpl("IdleStop");
 						bool succ = afm->RequestIdles(cacheCurrentIterator->second, animGraph, cacheCurrentIterator->first, animGraphManager);
 						if (!succ) {
 							_MESSAGE("Failed to cache %s", cacheCurrentIterator->first.c_str());

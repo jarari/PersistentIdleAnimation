@@ -33,6 +33,7 @@ static bool cached = false;
 static int cacheCount = 0;
 static int targetCount = 0;
 static int cachingStatus = 0;
+static int cacheRetryCount = 0;
 static bool isLoading = false;
 static bool wasDrawn = false;
 static bool updateAnimGraph = false;
@@ -311,12 +312,23 @@ void HookedAnimationFileManagerUpdate(AnimationFileManagerSingleton* filemanager
 						}
 					}
 					else if (*F4::ptr_engineTime - lastCacheRequest >= 1.f) {
-						_MESSAGE("Cache retry for %s", cacheCurrentIterator->first.c_str());
-						p->UpdateAnimation(1000.f);
-						p->NotifyAnimationGraphImpl("IdleStop");
-						bool succ = afm->RequestIdles(cacheCurrentIterator->second, animGraph, cacheCurrentIterator->first, animGraphManager);
-						if (!succ) {
+						++cacheRetryCount;
+						if (cacheRetryCount < 5) {
+							_MESSAGE("Cache retry for %s", cacheCurrentIterator->first.c_str());
+							p->UpdateAnimation(1000.f);
+							p->NotifyAnimationGraphImpl("IdleStop");
+							bool succ = afm->RequestIdles(cacheCurrentIterator->second, animGraph, cacheCurrentIterator->first, animGraphManager);
+							if (!succ) {
+								_MESSAGE("Failed to cache %s", cacheCurrentIterator->first.c_str());
+								--targetCount;
+								++cacheIterator;
+								cachingStatus = 0;
+								CheckCachingCompletion();
+							}
+						}
+						else {
 							_MESSAGE("Failed to cache %s", cacheCurrentIterator->first.c_str());
+							cacheRetryCount = 0;
 							--targetCount;
 							++cacheIterator;
 							cachingStatus = 0;
@@ -415,12 +427,12 @@ void InitializePlugin() {
 					}
 				}
 				reader.close();
+					}
+				}
 			}
-		}
-	}
 	cacheIterator = persistentIdleList.begin();
 	cacheCurrentIterator = persistentIdleList.end();
-}
+		}
 
 extern "C" DLLEXPORT bool F4SEAPI F4SEPlugin_Query(const F4SE::QueryInterface * a_f4se, F4SE::PluginInfo * a_info) {
 #ifndef NDEBUG
@@ -429,7 +441,7 @@ extern "C" DLLEXPORT bool F4SEAPI F4SEPlugin_Query(const F4SE::QueryInterface * 
 	auto path = logger::log_directory();
 	if (!path) {
 		return false;
-	}
+}
 
 	*path /= fmt::format(FMT_STRING("{}.log"), Version::PROJECT);
 	auto sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(path->string(), true);
@@ -467,7 +479,7 @@ extern "C" DLLEXPORT bool F4SEAPI F4SEPlugin_Query(const F4SE::QueryInterface * 
 	F4SE::AllocTrampoline(8 * 8);
 
 	return true;
-}
+	}
 
 extern "C" DLLEXPORT bool F4SEAPI F4SEPlugin_Load(const F4SE::LoadInterface * a_f4se) {
 	F4SE::Init(a_f4se);
